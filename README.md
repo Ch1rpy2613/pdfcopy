@@ -18,10 +18,12 @@ pdfcopy rebuilds the sentence a person meant to copy, then writes it back as a *
 
 ## Try it
 
-**No install** — run the demo desk in your browser:
+**No install** — the demo desk is live:
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Ch1rpy2613/pdfcopy)
-then `pdfcopy serve --open` in the Codespace terminal (the port forwards automatically).
+**<https://ch1rpy2613--pdfcopy.modal.run>**
+
+Or run it yourself in [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Ch1rpy2613/pdfcopy)
+— `pdfcopy serve --open` in the Codespace terminal (the port forwards automatically).
 
 **Install the CLI** (Python 3.10+):
 
@@ -81,6 +83,8 @@ python scripts/make_gif.py
 ## 中文说明
 
 **划过自动折行的那几个字，贴出来是一句完整的话。**
+
+在线演示（无需安装）：<https://ch1rpy2613--pdfcopy.modal.run>
 
 PDF 里存的不是句子，而是一串“在坐标 (x, y) 画出这些轮廓”的指令。所以普通阅读器复制出来的是按视觉换行切碎的碎片，还夹带“第 3 页 共 12 页”；缺 ToUnicode 的中文 PDF 甚至只贴得出 `????`。
 
