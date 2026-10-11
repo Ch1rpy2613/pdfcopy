@@ -1,0 +1,1 @@
+The first sentence stays on the opening lines of this narrow measure. The middle sentence is the one a reviewer actually wants, even when it wraps twice in the column. The last sentence is just the closing remark after that quote.

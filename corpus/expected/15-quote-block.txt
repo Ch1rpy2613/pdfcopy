@@ -1,0 +1,5 @@
+Warnock's note from 1991 still reads like a product brief:
+
+A file should look the same on every machine in the building, regardless of which fonts that machine happens to have installed.
+
+That sentence explains why paragraphs were never first-class data.

@@ -1,0 +1,5 @@
+Services Agreement
+
+This Services Agreement is entered into as of 8 October 2026 by and between Northwind Analytics LLC and the client named on the signature page. The parties agree that deliverables described in any statement of work are accepted only after written confirmation from the client.
+
+Neither party shall be liable for incidental or consequential damages arising from delay, including lost profits, even if advised of the possibility of such damages, except in cases of willful misconduct.

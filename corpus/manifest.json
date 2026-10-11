@@ -1,0 +1,154 @@
+{
+  "description": "Representative fixtures that reproduce real copy-breakage patterns.",
+  "scanned_policy": "v1 does not OCR. Fixture 06 is a known skip.",
+  "fixtures": [
+    {
+      "file": "01-invoice-header-footer.pdf",
+      "title": "Invoice with page footer",
+      "tags": [
+        "invoice",
+        "header-footer"
+      ]
+    },
+    {
+      "file": "02-two-column-article.pdf",
+      "title": "Two-column article",
+      "tags": [
+        "two-column",
+        "article"
+      ]
+    },
+    {
+      "file": "03-contract-wrapped.pdf",
+      "title": "Wrapped contract",
+      "tags": [
+        "contract"
+      ]
+    },
+    {
+      "file": "04-chinese-article.pdf",
+      "title": "Chinese article",
+      "tags": [
+        "cjk"
+      ]
+    },
+    {
+      "file": "05-chinese-no-tounicode.pdf",
+      "title": "Chinese without ToUnicode",
+      "tags": [
+        "cjk",
+        "tounicode"
+      ]
+    },
+    {
+      "file": "06-scanned-receipt.pdf",
+      "title": "Scanned receipt (no text layer)",
+      "tags": [
+        "scanned"
+      ]
+    },
+    {
+      "file": "07-hyphenation.pdf",
+      "title": "Hyphenated line break",
+      "tags": [
+        "hyphen"
+      ]
+    },
+    {
+      "file": "08-mixed-cjk-latin.pdf",
+      "title": "Mixed Chinese and Latin",
+      "tags": [
+        "cjk",
+        "mixed"
+      ]
+    },
+    {
+      "file": "09-academic-abstract.pdf",
+      "title": "Academic first page",
+      "tags": [
+        "two-column",
+        "paper"
+      ]
+    },
+    {
+      "file": "10-letter.pdf",
+      "title": "Business letter",
+      "tags": [
+        "letter"
+      ]
+    },
+    {
+      "file": "11-form-like-invoice.pdf",
+      "title": "Key-value field ticket",
+      "tags": [
+        "form"
+      ]
+    },
+    {
+      "file": "12-three-page-report.pdf",
+      "title": "Three-page running header",
+      "tags": [
+        "header-footer",
+        "multipage"
+      ]
+    },
+    {
+      "file": "13-narrow-column.pdf",
+      "title": "Narrow column wraps",
+      "tags": [
+        "reflow"
+      ]
+    },
+    {
+      "file": "14-bullet-list.pdf",
+      "title": "Bullet list",
+      "tags": [
+        "list"
+      ]
+    },
+    {
+      "file": "15-quote-block.pdf",
+      "title": "Indented quotation",
+      "tags": [
+        "quote"
+      ]
+    },
+    {
+      "file": "16-chinese-contract.pdf",
+      "title": "Chinese contract",
+      "tags": [
+        "cjk",
+        "contract"
+      ]
+    },
+    {
+      "file": "17-page-numbers-cn.pdf",
+      "title": "Chinese page numbers",
+      "tags": [
+        "cjk",
+        "header-footer"
+      ]
+    },
+    {
+      "file": "18-fake-spaces.pdf",
+      "title": "Fake spaces (no 0x20)",
+      "tags": [
+        "spaces"
+      ]
+    },
+    {
+      "file": "19-code-and-prose.pdf",
+      "title": "Prose plus code",
+      "tags": [
+        "code"
+      ]
+    },
+    {
+      "file": "20-table-and-prose.pdf",
+      "title": "Table between paragraphs",
+      "tags": [
+        "table"
+      ]
+    }
+  ]
+}

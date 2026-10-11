@@ -1,0 +1,7 @@
+Why a printed page still refuses to copy
+
+A PDF looks like a document and behaves like a stack of ink commands. That gap is why a sentence fractures the moment it hits a chat box.
+
+Thirty years ago the goal was simple: the same page had to look identical on every printer in the building. Coordinates were the honest answer. Paragraphs were someone else's problem.
+
+Readers still reconstruct words by measuring gaps. Soft wraps become newlines, running heads sneak into the clipboard, and a two-column essay is read as if both gutters were one sentence.

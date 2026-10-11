@@ -1,0 +1,12 @@
+ACME INDUSTRIAL CO., LTD.
+
+Invoice INV-2048
+
+Bill to: Harbor Robotics, 18 Pier Street
+
+Description Qty Unit Amount
+Linear actuator kit 2 180.00 360.00
+Hall sensor board 4 22.50 90.00
+Assembly labor 1 75.00 75.00
+
+Payment is due within thirty days of the invoice date. Please include the invoice number on the wire transfer memo so the accounts desk can match the remittance without a follow-up call.

@@ -1,0 +1,47 @@
+[project]
+name = "pdfcopy"
+version = "0.1.0"
+description = "Sentence lock: copy a sentence through a wrap, not broken lines."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "pdfcopy contributors" }]
+keywords = ["pdf", "copy", "paste", "reflow", "tounicode", "tagged-pdf"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Text Processing",
+]
+dependencies = [
+  "pdfminer.six>=20240706",
+  "pikepdf>=9.0.0",
+  "fonttools>=4.54.0",
+]
+
+[project.optional-dependencies]
+demo = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "python-multipart>=0.0.12",
+]
+dev = [
+  "pdfcopy[demo]",
+  "reportlab>=4.2.5",
+  "pillow>=10.4.0",
+  "pytest>=8.3.0",
+]
+
+[project.scripts]
+pdfcopy = "pdfcopy.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Ch1rpy2613/pdfcopy"
+Documentation = "https://github.com/Ch1rpy2613/pdfcopy/blob/main/docs/CONVENTION.md"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

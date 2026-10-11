@@ -1,0 +1,11 @@
+Measuring Soft Line Breaks in Page Description Languages
+
+L. Chen and M. Alvarez
+
+Abstract
+
+We measure how often visual line wraps are written to the clipboard as hard breaks, and show that a geometric pass recovers paragraph text on untagged office exports.
+
+Page description languages record ink, not discourse. Tagged PDF exists, yet printer drivers still flatten structure.
+
+Each glyph is clustered by baseline, then columns are split at the widest vertical gutter. Headers that repeat across pages are dropped.

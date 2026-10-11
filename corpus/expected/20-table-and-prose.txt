@@ -1,0 +1,8 @@
+Measured clipboard error rates on the office corpus:
+
+Class Naive pdfcopy
+Invoices 41% 4%
+Articles 63% 7%
+Contracts 58% 5%
+
+Geometric reflow removes almost all soft-break errors on these three classes.

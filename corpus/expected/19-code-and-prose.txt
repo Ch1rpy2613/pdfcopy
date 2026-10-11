@@ -1,0 +1,4 @@
+The extractor treats Courier as a code block and keeps the line breaks.
+
+def glue(left, right):
+    return left + ' ' + right

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pdfcopy — 划过折行，贴出一句</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="mode-fix">
+    <header class="mast">
+      <div class="brand">
+        <span class="mark">pdfcopy</span>
+        <span class="hook">划过自动折行的那几个字，贴出来是一句完整的话。</span>
+      </div>
+      <nav>
+        <a href="https://github.com/Ch1rpy2613/pdfcopy" rel="noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <p id="status" class="status" hidden></p>
+
+    <main class="stage">
+      <section class="well pane-sheet">
+        <div class="sheet-bar">
+          <label class="file btn">
+            <input id="file" type="file" accept="application/pdf" />
+            打开 PDF
+          </label>
+          <select id="corpus" aria-label="例句">
+            <option value="">例句…</option>
+          </select>
+          <span id="doc-chip" class="doc-chip" hidden></span>
+          <div class="page-nav">
+            <button id="prev" type="button" aria-label="上一页">‹</button>
+            <span id="page-label">–</span>
+            <button id="next" type="button" aria-label="下一页">›</button>
+          </div>
+          <button id="btn-download" class="btn ghost" type="button">下载修复版</button>
+        </div>
+
+        <div class="canvas-wrap">
+          <div id="empty-sheet" class="empty-sheet">
+            <p class="empty-title">把 PDF 拖到这里</p>
+            <p class="empty-sub">或点一句例句，八秒看懂句锁</p>
+            <button id="btn-try-narrow" class="btn accent" type="button">
+              打开窄栏例句
+            </button>
+          </div>
+          <div class="page-stack" hidden>
+            <canvas id="page"></canvas>
+            <svg id="mesh" class="mesh" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+        </div>
+        <p class="hint">在页上划过软折行。高亮跟着墨走，右边是锁住的那一句。</p>
+      </section>
+
+      <section class="note pane-note">
+        <div class="note-bar">
+          <h2 id="paste-title">贴出来</h2>
+          <div class="seg" role="group" aria-label="对照模式">
+            <button id="btn-fix" class="on" type="button">
+              句锁<span class="en">lock</span>
+            </button>
+            <button id="btn-naive" type="button">
+              断行<span class="en">naive</span>
+            </button>
+            <button id="btn-chrome" type="button">
+              全页<span class="en">fixed</span>
+            </button>
+          </div>
+          <button id="btn-copy" class="btn accent" type="button">复制</button>
+        </div>
+        <div class="note-body">
+          <pre id="paste" class="paste empty-paste">划过折行，贴出一句。</pre>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      离线 · 不用 GPU · <code>pdfcopy fix</code> 写入句锁网
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
