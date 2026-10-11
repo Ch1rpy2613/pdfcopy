@@ -117,12 +117,38 @@ def _cluster_page(page: PageGlyphs) -> PageLayout:
     if not page.glyphs:
         return layout
     usable = [g for g in page.glyphs if g.text != ""]
-    if not usable:
-        return layout
-    lines = _group_lines(usable)
-    _assign_columns(lines, page.width)
+    upright = [g for g in usable if g.upright]
+    rotated = [g for g in usable if not g.upright]
+    if upright:
+        lines = _group_lines(upright)
+        _assign_columns(lines, page.width)
+    else:
+        lines = []
+    # Rotated margin text (DOI sidebars, vertical running heads) reads
+    # top-down at a fixed x; keep it out of the horizontal body lines.
+    lines.extend(_vertical_lines(rotated))
     layout.lines = lines
     return layout
+
+
+def _vertical_lines(glyphs: list[Glyph]) -> list[Line]:
+    if not glyphs:
+        return []
+    columns: list[list[Glyph]] = []
+    for glyph in sorted(glyphs, key=lambda g: -g.ymid):
+        for bucket in columns:
+            ref = bucket[0]
+            tol = max(ref.size * 0.3, 1.5)
+            if abs(glyph.xmid - ref.xmid) <= tol:
+                bucket.append(glyph)
+                break
+        else:
+            columns.append([glyph])
+    out: list[Line] = []
+    for bucket in columns:
+        bucket.sort(key=lambda g: (-g.y0, g.x0))
+        out.append(Line(glyphs=bucket, page=bucket[0].page, role="footer"))
+    return out
 
 
 def _group_lines(glyphs: list[Glyph]) -> list[Line]:

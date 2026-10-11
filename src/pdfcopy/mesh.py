@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 
 from pdfcopy.cluster import Block, Line, PageLayout
@@ -10,6 +11,7 @@ from pdfcopy.serialize import (
     _join_soft_break,
     _needs_space,
     is_cjk,
+    line_space_cut,
     serialize_block,
     serialize_line,
 )
@@ -165,8 +167,9 @@ def flatten_block(block: Block) -> list[MeshChar]:
 def flatten_line(line: Line) -> list[MeshChar]:
     out: list[MeshChar] = []
     prev: Glyph | None = None
+    cut = line_space_cut(line)
     for glyph in line.glyphs:
-        if prev is not None and _needs_space(prev, glyph, glyph.x0 - prev.x1):
+        if prev is not None and _needs_space(prev, glyph, glyph.x0 - prev.x1, cut):
             gap_x0 = prev.x1
             gap_x1 = glyph.x0
             out.append(
@@ -233,7 +236,7 @@ def split_sentences(
     page: int,
     block_id: str,
 ) -> list[Sentence]:
-    text = "".join(c.text for c in chars)
+    text = unicodedata.normalize("NFC", "".join(c.text for c in chars))
     if not text.strip():
         return []
     ends = sentence_end_indices(text)

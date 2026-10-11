@@ -70,7 +70,7 @@ def create_app():
         if not result.scanned:
             fixed = io.BytesIO()
             try:
-                fix_pdf(io.BytesIO(data), fixed)
+                fix_pdf(io.BytesIO(data), fixed, result=result)
                 reader_text = reader_copy_text(io.BytesIO(fixed.getvalue()))
             except Exception:
                 reader_text = result.text

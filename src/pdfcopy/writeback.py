@@ -21,15 +21,18 @@ def fix_pdf(
     dest: str | Path | BinaryIO,
     metadata_only: bool = False,
     outline: bool = False,
+    result: ExtractResult | None = None,
 ) -> ExtractResult:
     """Write a glyph-aligned copy mesh plus ToUnicode, tags, and overlay.
 
     Original ink stays (Artifact-wrapped). Pass outline=True to convert the
     painted letters to paths for readers that ignore Artifact. Pass
     metadata_only=True to keep the old text operators and only stamp
-    overlay / ToUnicode.
+    overlay / ToUnicode. Pass result= to reuse an extraction you already
+    ran instead of parsing the document twice.
     """
-    result = extract(source)
+    if result is None:
+        result = extract(source)
     data = _read_all(source)
     pdf = pikepdf.Pdf.open(io.BytesIO(data))
     try:

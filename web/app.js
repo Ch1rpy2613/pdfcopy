@@ -19,6 +19,31 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 const $ = (id) => document.getElementById(id);
 
+let busyTimer = null;
+function busy(on, message) {
+  const status = $("status");
+  document.body.classList.toggle("busy", on);
+  ["btn-download", "btn-copy", "btn-try-narrow", "file"].forEach((id) => {
+    const el = $(id);
+    if (el) el.disabled = on;
+  });
+  if (on) {
+    const start = Date.now();
+    status.hidden = false;
+    const tick = () => {
+      const sec = Math.round((Date.now() - start) / 1000);
+      status.textContent = `${message}… ${sec}s（大文件要等一会儿）`;
+    };
+    tick();
+    busyTimer = setInterval(tick, 1000);
+  } else {
+    clearInterval(busyTimer);
+    if (!state.result || !state.result.warnings || !state.result.warnings.length) {
+      status.hidden = true;
+    }
+  }
+}
+
 function setHasDoc(on) {
   document.body.classList.toggle("has-doc", on);
   const chip = $("doc-chip");
@@ -90,15 +115,21 @@ async function renderPage() {
 
 async function extractCurrent() {
   if (!state.bytes) return;
-  const body = new FormData();
-  body.append("file", new Blob([state.bytes], { type: "application/pdf" }), state.name);
-  const res = await fetch("/api/extract", { method: "POST", body });
-  state.result = await res.json();
-  showText();
-  drawSelection();
-  if (state.result.warnings && state.result.warnings.length) {
-    $("status").hidden = false;
-    $("status").textContent = state.result.warnings.join(" ");
+  busy(true, "正在重建句子");
+  try {
+    const body = new FormData();
+    body.append("file", new Blob([state.bytes], { type: "application/pdf" }), state.name);
+    const res = await fetch("/api/extract", { method: "POST", body });
+    state.result = await res.json();
+    showText();
+    drawSelection();
+    if (state.result.warnings && state.result.warnings.length) {
+      const status = $("status");
+      status.hidden = false;
+      status.textContent = state.result.warnings.join(" ");
+    }
+  } finally {
+    busy(false);
   }
 }
 
@@ -425,16 +456,21 @@ document.addEventListener("copy", (event) => {
 
 $("btn-download").addEventListener("click", async () => {
   if (!state.bytes) return;
-  const body = new FormData();
-  body.append("file", new Blob([state.bytes], { type: "application/pdf" }), state.name);
-  const res = await fetch("/api/fix", { method: "POST", body });
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = state.name.replace(/\.pdf$/i, "") + ".fixed.pdf";
-  link.click();
-  URL.revokeObjectURL(url);
+  busy(true, "正在写入句锁网");
+  try {
+    const body = new FormData();
+    body.append("file", new Blob([state.bytes], { type: "application/pdf" }), state.name);
+    const res = await fetch("/api/fix", { method: "POST", body });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = state.name.replace(/\.pdf$/i, "") + ".fixed.pdf";
+    link.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    busy(false);
+  }
 });
 
 const mesh = $("mesh");

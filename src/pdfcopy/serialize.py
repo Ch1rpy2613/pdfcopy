@@ -123,20 +123,58 @@ def _join_soft_break(left: str, right: str) -> str:
 def _line_with_spaces(line: Line) -> str:
     if not line.glyphs:
         return ""
+    cut = line_space_cut(line)
     parts: list[str] = []
     prev: Glyph | None = None
     for glyph in line.glyphs:
         if prev is not None:
             gap = glyph.x0 - prev.x1
-            if _needs_space(prev, glyph, gap):
+            if _needs_space(prev, glyph, gap, cut):
                 if not (parts and parts[-1].endswith(" ")) and not glyph.text.startswith(" "):
                     parts.append(" ")
         parts.append(glyph.text)
         prev = glyph
-    return "".join(parts)
+    return unicodedata.normalize("NFC", "".join(parts))
 
 
-def _needs_space(prev: Glyph, cur: Glyph, gap: float) -> bool:
+def line_space_cut(line: Line) -> float | None:
+    """Adaptive word-space threshold for this line, or None to use the default.
+
+    Letter-spaced headings and tightly set body text both defeat any fixed
+    multiple of glyph width: the reliable signal is a line's own gap
+    distribution, which splits into a tight intra-word cluster and a loose
+    word-space cluster. The cut is the midpoint of the biggest jump.
+    """
+    size = line.size or 0.0
+    if size <= 0 or len(line.glyphs) < 6:
+        return None
+    gaps: list[float] = []
+    prev: Glyph | None = None
+    for glyph in line.glyphs:
+        if prev is not None:
+            left = prev.text[-1:] if prev.text else ""
+            right = glyph.text[:1] if glyph.text else ""
+            if left and right and not left.isspace() and not right.isspace():
+                gaps.append(round(glyph.x0 - prev.x1, 3))
+        prev = glyph
+    if len(gaps) < 4:
+        return None
+    xs = sorted(gaps)
+    floor = size * 0.11  # a real space is at least ~an eighth of an em
+    best_jump, best_cut = 0.0, None
+    for a, b in zip(xs[:-1], xs[1:]):
+        if b < floor or a > size * 0.5:
+            continue
+        jump = b - a
+        if jump > best_jump and jump >= size * 0.06:
+            upper = [g for g in xs if g >= b]
+            if len(upper) >= 2 or (len(upper) == 1 and b >= size * 0.2):
+                best_jump = jump
+                best_cut = (a + b) / 2
+    return best_cut
+
+
+def _needs_space(prev: Glyph, cur: Glyph, gap: float, cut: float | None = None) -> bool:
     left = prev.text[-1] if prev.text else ""
     right = cur.text[0] if cur.text else ""
     if not left or not right:
@@ -152,6 +190,8 @@ def _needs_space(prev: Glyph, cur: Glyph, gap: float) -> bool:
         return gap > max(prev.size, cur.size) * 0.5
     if left.isascii() and left.isalnum() and is_cjk(right):
         return gap > max(prev.size, cur.size) * 0.5
+    if cut is not None and gap > cut:
+        return True
     typical = max(prev.width, cur.width, prev.size * 0.45, 1.0)
     return gap > typical * 0.28
 

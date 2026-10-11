@@ -19,6 +19,22 @@ from pdfminer.pdftypes import resolve1
 from pikepdf import Name
 
 CID_TEXT = re.compile(r"^\(cid:(\d+)\)$")
+# Spacing look-alikes of combining marks: publishers decompose ñ into
+# "n" + a tilde drawn as its own glyph.
+SPACING_MARKS = {
+    "\u02dc": "\u0303",  # small tilde -> combining tilde
+    "\u02c7": "\u030c",  # caron
+    "\u02c6": "\u0302",  # modifier circumflex
+    "\u02d8": "\u0306",  # breve
+    "\u02d9": "\u0307",  # dot above
+    "\u02da": "\u030a",  # ring above
+    "\u02dd": "\u030b",  # double acute
+    "\u00a8": "\u0308",  # diaeresis
+    "\u00af": "\u0304",  # macron
+    "\u00b4": "\u0301",  # acute
+    "\u02cb": "\u0300",  # grave
+    "\u02ca": "\u0301",
+}
 DINGBATS = {
     108: "•",
     117: "•",
@@ -45,6 +61,7 @@ class Glyph:
     page: int
     cid: int | None = None
     glyph_name: str | None = None
+    upright: bool = True
 
     @property
     def width(self) -> float:
@@ -172,8 +189,22 @@ def decode_glyph_name(name: str) -> str:
         "ff": "ff",
         "ffi": "ffi",
         "ffl": "ffl",
+        # TeX symbol names that publishers compose symbols from
+        "circlecopyrt": "©",
+        "copyright": "©",
+        "openbullet": "◦",
+        "circlemultiply": "⊗",
+        "circleplus": "⊕",
     }
-    return adobe.get(name, "")
+    if name in adobe:
+        return adobe[name]
+    try:
+        from fontTools.agl import toUnicode
+
+        mapped = toUnicode(name)
+    except Exception:
+        return ""
+    return mapped if mapped and mapped != name else ""
 
 
 def _open_source(source: str | Path | BinaryIO) -> io.BytesIO:
@@ -186,6 +217,54 @@ def _open_source(source: str | Path | BinaryIO) -> io.BytesIO:
                 pass
         return io.BytesIO(data)
     return io.BytesIO(Path(source).read_bytes())
+
+
+def _merge_spacing_marks(glyphs: list[Glyph]) -> list[Glyph]:
+    """Fold accent glyphs onto the letter they geometrically sit on.
+
+    TeX-era publishers decompose ñ into a base letter plus a tilde drawn as
+    its own glyph, and the accent may precede or follow its target in the
+    content stream — only the x-overlap says who carries it.
+    """
+    import unicodedata
+
+    marks = [i for i, g in enumerate(glyphs) if g.text in SPACING_MARKS]
+    if not marks:
+        return list(glyphs)
+    base = list(glyphs)
+    dropped: set[int] = set()
+    for mi in marks:
+        m = base[mi]
+        best, best_score = -1, 0.0
+        for j, g in enumerate(base):
+            if j == mi or j in dropped:
+                continue
+            if g.page != m.page or not g.text or not g.text[-1].isalnum():
+                continue
+            overlap = min(g.x1, m.x1) - max(g.x0, m.x0)
+            if overlap <= 0:
+                continue
+            score = overlap - abs(g.xmid - m.xmid) * 0.01
+            if score > best_score:
+                best, best_score = j, score
+        if best < 0:
+            continue
+        prev = base[best]
+        combined = unicodedata.normalize("NFC", prev.text + SPACING_MARKS[m.text])
+        if combined == prev.text + m.text:
+            continue
+        base[best] = Glyph(
+            text=combined,
+            x0=prev.x0,
+            y0=min(prev.y0, m.y0),
+            x1=max(prev.x1, m.x1),
+            y1=max(prev.y1, m.y1),
+            fontname=prev.fontname,
+            size=max(prev.size, m.size),
+            page=prev.page,
+        )
+        dropped.add(mi)
+    return [g for i, g in enumerate(base) if i not in dropped]
 
 
 def extract_glyphs(source: str | Path | BinaryIO) -> list[PageGlyphs]:
@@ -214,8 +293,10 @@ def extract_glyphs(source: str | Path | BinaryIO) -> list[PageGlyphs]:
                         fontname=str(getattr(char, "fontname", "") or ""),
                         size=float(getattr(char, "size", 0) or (char.y1 - char.y0)),
                         page=index,
+                        upright=bool(getattr(char, "upright", True)),
                     )
                 )
+            glyphs = _merge_spacing_marks(glyphs)
             pages.append(
                 PageGlyphs(
                     index=index,
@@ -270,13 +351,38 @@ def load_font_cid_maps(source: bytes | BinaryIO | None) -> dict[str, dict[int, s
     except Exception:
         return maps
     try:
-        for page in pdf.pages:
-            fonts = page.get("/Resources", {}).get("/Font", {}) or {}
-            for _, font in fonts.items():
-                _collect_font_map(font, maps)
+        seen: set = set()
+        for font in _iter_page_fonts(pdf.Root.get(Name.Pages, None)):
+            # Direct (non-indirect) font dicts all share objgen (0, 0);
+            # key those by BaseFont instead of skipping them as duplicates.
+            gen = font.objgen
+            key = gen if gen != (0, 0) else ("direct", str(font.get(Name.BaseFont, "")))
+            if key in seen:
+                continue
+            seen.add(key)
+            _collect_font_map(font, maps)
     finally:
         pdf.close()
     return maps
+
+
+def _iter_page_fonts(node):
+    """Every /Font on the page tree — resources are inherited, so walk it all."""
+    if node is None:
+        return
+    resources = node.get(Name.Resources, None)
+    if resources is not None:
+        fonts = resources.get(Name.Font, None)
+        if fonts is not None:
+            try:
+                for _, font in fonts.items():
+                    yield font
+            except Exception:
+                pass
+    kids = node.get(Name.Kids, None)
+    if kids is not None:
+        for kid in kids:
+            yield from _iter_page_fonts(kid)
 
 
 def _collect_font_map(font, maps: dict[str, dict[int, str]]) -> None:
@@ -297,13 +403,89 @@ def _collect_font_map(font, maps: dict[str, dict[int, str]]) -> None:
                 names.append(str(child_base).lstrip("/").split("+")[-1])
         except Exception:
             pass
-    if not blob:
-        return
-    table = ttf_cmap_table(blob)
+    table: dict[int, str] = {}
+    # /Differences maps character codes to glyph names even when ToUnicode
+    # is missing — publisher symbol fonts (© circles, bullets) decode here.
+    decorative_hint = any("circ" in n.lower() for n in names) if names else False
+    for code, gname in _differences_map(font).items():
+        text = decode_glyph_name(gname) or _decorative_glyph(gname, decorative_hint)
+        if text:
+            table[code] = text
+    if blob:
+        base_hint = names[-1] if names else ""
+        for extra in (ttf_cmap_table(blob), cff_encoding_map(blob, base_hint)):
+            if extra:
+                for code, text in extra.items():
+                    table.setdefault(code, text)
     if not table:
         return
     for name in names:
-        maps[name] = table
+        merged = dict(maps.get(name, {}))
+        merged.update(table)
+        maps[name] = merged
+
+
+def _decorative_glyph(name: str, decorative_hint: bool) -> str:
+    """TeX circle fonts name their glyphs a1..aN with no AGL meaning."""
+    if decorative_hint and re.fullmatch(r"a\d+", name):
+        return "○"
+    return ""
+
+
+def cff_encoding_map(font_bytes: bytes, base_hint: str = "") -> dict[int, str]:
+    """Decode a bare Type1C font's built-in encoding (code -> unicode)."""
+    try:
+        from fontTools.cffLib import CFFFontSet
+
+        cff = CFFFontSet()
+        cff.decompile(io.BytesIO(font_bytes), None)
+        top = cff[cff.fontNames[0]]
+        enc = getattr(top, "Encoding", None)
+        if enc is None:
+            return {}
+        if isinstance(enc, list):
+            # index is the character code; the entry is the glyph name
+            pairs = list(enumerate(enc))
+        else:
+            codes = getattr(enc, "codes", None) or []
+            glyph_names = getattr(enc, "names", None) or []
+            pairs = zip(codes, glyph_names)
+        mapping: dict[int, str] = {}
+        decorative = "circ" in base_hint.lower()
+        for code, name in pairs:
+            if not name or name == ".notdef":
+                continue
+            text = decode_glyph_name(name) or _decorative_glyph(name, decorative)
+            if text:
+                mapping[code] = text
+        return mapping
+    except Exception:
+        return {}
+
+
+def _differences_map(font) -> dict[int, str]:
+    """Character code -> glyph NAME from /Encoding /Differences."""
+    encoding = font.get(Name.Encoding, None)
+    if encoding is None or not hasattr(encoding, "get"):
+        return {}
+    differences = encoding.get(Name.Differences, None)
+    if differences is None:
+        return {}
+    mapping: dict[int, str] = {}
+    code = 0
+    try:
+        items = list(differences)
+    except Exception:
+        return {}
+    for item in items:
+        try:
+            code = int(item)
+            continue
+        except (TypeError, ValueError):
+            pass
+        mapping[code] = str(item).lstrip("/")
+        code += 1
+    return mapping
 
 
 def _font_file_bytes(font) -> bytes | None:
