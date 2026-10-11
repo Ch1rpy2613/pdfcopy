@@ -70,7 +70,7 @@ def main() -> int:
     body = _font(15)
     memo = _font(16)
     frames: list[Image.Image] = []
-    steps = 16
+    steps = 14
     mid_start = next((i for i, line in enumerate(page_lines) if "middle" in line.lower()), 2)
     mid_lines = [
         i
@@ -106,9 +106,17 @@ def main() -> int:
             y += line_h
 
         clip_top = 300
-        draw.rectangle((18, clip_top, width // 2 - 18, height - 18), outline="#7a2e1b", width=1)
         draw.rectangle(
-            (width // 2 + 18, clip_top, width - 18, height - 18), outline="#1f4d3a", width=1
+            (18, clip_top, width // 2 - 18, height - 18),
+            fill="#faece6",
+            outline="#7a2e1b",
+            width=1,
+        )
+        draw.rectangle(
+            (width // 2 + 18, clip_top, width - 18, height - 18),
+            fill="#e9f4ee",
+            outline="#1f4d3a",
+            width=1,
         )
         draw.text((24, clip_top + 8), "WeChat / Notes", font=body, fill="#7a2e1b")
         draw.text((width // 2 + 24, clip_top + 8), "WeChat / Notes", font=body, fill="#1f4d3a")
@@ -132,7 +140,7 @@ def main() -> int:
         OUT,
         save_all=True,
         append_images=frames[1:],
-        duration=500,
+        duration=420,
         loop=0,
     )
     print(f"wrote {OUT}")
