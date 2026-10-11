@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: pdfcopy
+    runtime: docker
+    plan: free
+    healthcheckPath: /api/health
+    autoDeploy: true

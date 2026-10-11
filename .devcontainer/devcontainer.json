@@ -1,0 +1,12 @@
+{
+  "name": "pdfcopy",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "postCreateCommand": "pip install -e \".[dev]\"",
+  "forwardPorts": [8765],
+  "portsAttributes": {
+    "8765": {
+      "label": "pdfcopy demo desk",
+      "onAutoForward": "openBrowser"
+    }
+  }
+}
