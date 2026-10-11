@@ -9,11 +9,12 @@ WORKDIR /app
 
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir ".[demo]"
-
-# web UI + demo corpus (paths.py resolves them from the working directory)
+# web + corpus must be present at pip-install time: hatchling force-includes
+# them into the wheel (pdfcopy/_web, pdfcopy/_corpus); paths.py also reads
+# them from the working directory at runtime.
 COPY web ./web
 COPY corpus ./corpus
+RUN pip install --no-cache-dir ".[demo]"
 
 ENV PORT=8000
 EXPOSE 8000
