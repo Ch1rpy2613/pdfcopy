@@ -3,5 +3,5 @@ services:
     name: pdfcopy
     runtime: docker
     plan: free
-    healthcheckPath: /api/health
-    autoDeploy: true
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
