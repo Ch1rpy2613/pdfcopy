@@ -39,6 +39,8 @@ docker build -t pdfcopy .
 docker run --rm -p 8000:8000 pdfcopy
 ```
 
+Or one command on [Modal](https://modal.com) (free tier covers it): `modal deploy modal_app.py`.
+
 Open the demo desk: drag a PDF onto the lit page, or hit the narrow-column sample. Drag across a wrap — amber highlight follows the ink, the note card on the right is the locked sentence. Copy writes `text/plain` and `text/html`. Flip to **断行** for the staircase.
 
 ## What it does
