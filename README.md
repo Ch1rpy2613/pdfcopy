@@ -1,5 +1,6 @@
 # pdfcopy
 
+[![PyPI](https://img.shields.io/pypi/v/pdfcopy.svg?color=blue)](https://pypi.org/project/pdfcopy/)
 [![CI](https://github.com/Ch1rpy2613/pdfcopy/actions/workflows/ci.yml/badge.svg)](https://github.com/Ch1rpy2613/pdfcopy/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](pyproject.toml)
