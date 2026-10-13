@@ -1,6 +1,6 @@
 [project]
 name = "pdfcopy"
-version = "0.1.2"
+version = "0.1.3"
 description = "Sentence lock: copy a sentence through a wrap, not broken lines."
 readme = "README.md"
 license = { text = "MIT" }
