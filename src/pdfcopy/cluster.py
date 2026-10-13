@@ -24,11 +24,23 @@ ARTIFACT_HINT = re.compile(
     r"(?i)(confidential|internal use|draft|not for distribution|"
     r"内部资料|机密|仅供|第\s*\d+\s*页|page\s+\d+)"
 )
+# Footnote / endnote markers: "1 ", "1.", "1)", "a)", "i.", "*", "†", "‡"
+# Single letters need punctuation: "a " is an English word, not a note marker.
+FOOTNOTE_START = re.compile(
+    r"""(?x)
+    ^(
+        \d{1,3}[\s.)\u00a0]
+      | [*\u2020\u2021\u00a7\u00b6][\s.]?
+      | [a-z][.)]
+      | [ivx]{1,5}[.)]
+    )
+    """
+)
 BULLET_RE = re.compile(
     r"""(?x)
     ^\s*(
         [\u2022\u2023\u25E6\u2043\u2219•·▪‣◦\-–—*＊]
-        |\(?\d+[.)、]
+        |\(?\d{1,2}[.)、]
         |\(?[a-zA-Z][.)]
         |（[0-9一二三四五六七八九十]+）
         |[①②③④⑤⑥⑦⑧⑨⑩]
@@ -42,7 +54,7 @@ class Line:
     glyphs: list[Glyph]
     page: int
     column: int = 0
-    role: str = "body"  # body | header | footer | page_number | heading | list | table | code
+    role: str = "body"  # body | header | footer | page_number | heading | list | table | code | footnote
 
     @property
     def text_raw(self) -> str:
@@ -107,6 +119,7 @@ def cluster_document(pages: list[PageGlyphs]) -> list[PageLayout]:
     _mark_repeating_artifacts(layouts)
     for layout in layouts:
         _assign_line_roles(layout)
+        _mark_footnotes(layout)
         layout.blocks = _lines_to_blocks(layout)
         _assign_reading_order(layout)
     return layouts
@@ -120,8 +133,15 @@ def _cluster_page(page: PageGlyphs) -> PageLayout:
     upright = [g for g in usable if g.upright]
     rotated = [g for g in usable if not g.upright]
     if upright:
-        lines = _group_lines(upright)
-        _assign_columns(lines, page.width)
+        raw = _group_lines_raw(upright)
+        # Spread exports draw past the MediaBox; columns live in the ink bbox.
+        content_w = max(
+            page.width,
+            max((g.x1 for g in upright), default=0.0) - min((g.x0 for g in upright), default=0.0),
+        )
+        gutter = _find_gutter(raw, content_w)
+        lines = _split_on_gutter(raw, gutter)
+        _assign_columns(lines, content_w, gutter)
     else:
         lines = []
     # Rotated margin text (DOI sidebars, vertical running heads) reads
@@ -151,7 +171,8 @@ def _vertical_lines(glyphs: list[Glyph]) -> list[Line]:
     return out
 
 
-def _group_lines(glyphs: list[Glyph]) -> list[Line]:
+def _group_lines_raw(glyphs: list[Glyph]) -> list[Line]:
+    """Bucket glyphs by baseline. Column islands are split later."""
     ordered = sorted(glyphs, key=lambda g: (-g.ymid, g.x0))
     sizes = [g.size for g in ordered]
     typical = median(sizes) if sizes else 12.0
@@ -170,11 +191,60 @@ def _group_lines(glyphs: list[Glyph]) -> list[Line]:
     out: list[Line] = []
     for bucket in lines:
         bucket.sort(key=lambda g: g.x0)
-        page_width = max(g.x1 for g in glyphs) + 8
-        for piece in _split_column_islands(bucket, page_width):
-            out.append(Line(glyphs=piece, page=piece[0].page))
+        out.append(Line(glyphs=bucket, page=bucket[0].page))
     out.sort(key=lambda line: (-line.ymid, line.x0))
     return out
+
+
+def _split_on_gutter(
+    lines: list[Line], gutter: tuple[float, float] | None
+) -> list[Line]:
+    """Cut shared baselines at the column gutter; leave table/form rows whole."""
+    if gutter is None:
+        return lines
+    left_end, right_start = gutter
+    out: list[Line] = []
+    for line in lines:
+        pieces = _cut_at_gutter(line.glyphs, left_end, right_start)
+        for piece in pieces:
+            out.append(Line(glyphs=piece, page=line.page, role=line.role))
+    out.sort(key=lambda line: (-line.ymid, line.x0))
+    return out
+
+
+def _cut_at_gutter(
+    glyphs: list[Glyph], left_end: float, right_start: float
+) -> list[list[Glyph]]:
+    if len(glyphs) < 2:
+        return [glyphs]
+    # Column islands can end well left of the gutter (ragged right). Accept
+    # any dominant mid-page gap near the gutter, not just ones inside it.
+    lo = left_end - 90
+    hi = right_start + 90
+    best: tuple[float, int] | None = None
+    for i in range(1, len(glyphs)):
+        gap = glyphs[i].x0 - glyphs[i - 1].x1
+        mid = (glyphs[i - 1].x1 + glyphs[i].x0) / 2
+        if mid < lo or mid > hi:
+            continue
+        if best is None or gap > best[0]:
+            best = (gap, i)
+    if best is None:
+        return [glyphs]
+    gap, idx = best
+    other = [glyphs[i].x0 - glyphs[i - 1].x1 for i in range(1, len(glyphs)) if i != idx]
+    second = max(other) if other else 0.0
+    # A real gutter dwarfs word spaces. Two similar cell walls stay a row.
+    if gap < 10 or gap < second * 1.6:
+        return [glyphs]
+    left, right = glyphs[:idx], glyphs[idx:]
+    if len(left) < 2 or len(right) < 2:
+        return [glyphs]
+    return [left, right]
+
+
+def _group_lines(glyphs: list[Glyph]) -> list[Line]:
+    return _group_lines_raw(glyphs)
 
 
 def _split_column_islands(glyphs: list[Glyph], page_width: float) -> list[list[Glyph]]:
@@ -193,84 +263,158 @@ def _split_column_islands(glyphs: list[Glyph], page_width: float) -> list[list[G
     return [glyphs]
 
 
-def _assign_columns(lines: list[Line], page_width: float) -> None:
+def _assign_columns(
+    lines: list[Line], page_width: float, gutter: tuple[float, float] | None = None
+) -> None:
     rightish = [line for line in lines if line.x0 > page_width * 0.46]
     leftish = [
         line
         for line in lines
         if line.x1 < page_width * 0.55 and (line.x1 - line.x0) < page_width * 0.5
     ]
-    if len(rightish) >= 2 and len(leftish) >= 2:
+    if gutter is None and len(rightish) >= 2 and len(leftish) >= 2:
         for line in lines:
             line.column = 1 if line.x0 > page_width * 0.46 else 0
         return
-    gutter = _find_gutter(lines, page_width)
+    if gutter is None:
+        gutter = _find_gutter(lines, page_width)
     if gutter is None:
         for line in lines:
             line.column = 0
         return
     left_end, right_start = gutter
+    mid = (left_end + right_start) / 2
     for line in lines:
-        if line.x1 <= left_end + 2:
+        if line.x1 <= mid:
             line.column = 0
-        elif line.x0 >= right_start - 2:
+        elif line.x0 >= mid:
             line.column = 1
         else:
             line.column = 0
 
 
 def _find_gutter(lines: list[Line], page_width: float) -> tuple[float, float] | None:
-    """Find a vertical gap that many lines do not cross — a two-column gutter."""
-    margin = page_width * 0.12
-    lo = margin
-    hi = page_width - margin
+    """Find the column gutter between line spans or glued baselines.
+
+    Two complementary signals:
+    - wide mid-line gap (a baseline glued across the gutter)
+    - a vertical coverage hole (columns already drawn as separate lines)
+    """
+    if not lines:
+        return None
+    xs0 = [line.x0 for line in lines]
+    xs1 = [line.x1 for line in lines]
+    ink0, ink1 = min(xs0), max(xs1)
+    span = max(ink1 - ink0, page_width, 1.0)
+    voted = _gutter_from_gaps(lines, ink0, ink1, span)
+    holed = _gutter_from_holes(lines, ink0, ink1)
+    return voted or holed
+
+
+def _gutter_from_gaps(
+    lines: list[Line], ink0: float, ink1: float, span: float
+) -> tuple[float, float] | None:
+    lo = ink0 + span * 0.18
+    hi = ink1 - span * 0.18
     if hi <= lo:
         return None
-    bins = 48
-    step = (hi - lo) / bins
-    hits = [0] * bins
-    candidates = [line for line in lines if (line.x1 - line.x0) < page_width * 0.72]
-    if len(candidates) < 6:
+    votes: Counter[int] = Counter()
+    for line in lines:
+        glyphs = line.glyphs
+        if len(glyphs) < 4:
+            continue
+        best: tuple[float, float] | None = None
+        for i in range(1, len(glyphs)):
+            gap = glyphs[i].x0 - glyphs[i - 1].x1
+            mid = (glyphs[i - 1].x1 + glyphs[i].x0) / 2
+            if gap < 10 or mid < lo or mid > hi:
+                continue
+            # Form fields have huge label/value holes; column gutters do not.
+            if gap > span * 0.12:
+                continue
+            if best is None or gap > best[0]:
+                best = (gap, mid)
+        if best is None:
+            continue
+        gap, mid = best
+        others = [
+            glyphs[i].x0 - glyphs[i - 1].x1
+            for i in range(1, len(glyphs))
+            if abs((glyphs[i - 1].x1 + glyphs[i].x0) / 2 - mid) > 1
+        ]
+        second = max(others) if others else 0.0
+        if gap < 14 or gap < second * 1.5:
+            continue
+        votes[int(mid // 10)] += 1
+    return _cluster_votes(votes)
+
+
+def _gutter_from_holes(
+    lines: list[Line], ink0: float, ink1: float
+) -> tuple[float, float] | None:
+    """A channel where almost no line has ink is a column gutter.
+
+    Only fires when both sides look like real columns (several full-height
+    residents), so invoice label/value holes stay whole.
+    """
+    if ink1 - ink0 < 80:
         return None
-    for line in candidates:
+    bins = 40
+    step = (ink1 - ink0) / bins
+    if step <= 0:
+        return None
+    hits = [0] * bins
+    residents = [line for line in lines if line.x1 - line.x0 <= (ink1 - ink0) * 0.88]
+    if len(residents) < 6:
+        return None
+    for line in residents:
         for i in range(bins):
-            x = lo + (i + 0.5) * step
+            x = ink0 + (i + 0.5) * step
             if line.x0 <= x <= line.x1:
                 hits[i] += 1
-    # Prefer a low-hit run near the page center.
-    center = bins // 2
-    best: tuple[int, int, int] | None = None
+    best: tuple[int, int] | None = None
     i = 0
     while i < bins:
-        if hits[i] <= max(1, len(candidates) * 0.08):
+        if hits[i] <= 1:
             j = i
-            while j < bins and hits[j] <= max(1, len(candidates) * 0.08):
+            while j < bins and hits[j] <= 1:
                 j += 1
             run = j - i
-            if run >= 2:
-                mid = (i + j) / 2
-                score = run * 2 - abs(mid - center) * 0.15
-                if best is None or score > best[0]:
-                    best = (int(score * 100), i, j)
+            if run >= 2 and (best is None or run > best[1]):
+                best = (i, run)
             i = j
         else:
             i += 1
     if best is None:
         return None
-    _, start, end = best
-    mid_index = (start + end) / 2
-    if abs(mid_index - center) > bins * 0.28:
-        return None
-    left_end = lo + start * step
-    right_start = lo + end * step
-    if right_start - left_end < page_width * 0.03:
-        return None
-    # Must actually separate a useful number of lines.
-    left_n = sum(1 for line in candidates if line.x1 <= left_end + 4)
-    right_n = sum(1 for line in candidates if line.x0 >= right_start - 4)
+    start, run = best
+    mid = ink0 + (start + run / 2) * step
+    width = max(step * (run / 2 + 0.5), 12)
+    left_end, right_start = mid - width, mid + width
+    left_n = sum(1 for line in residents if line.x1 <= mid)
+    right_n = sum(1 for line in residents if line.x0 >= mid)
+    # A real two-column band has several lines on each side of the channel.
     if left_n < 3 or right_n < 3:
         return None
     return left_end, right_start
+
+
+def _cluster_votes(votes: Counter[int]) -> tuple[float, float] | None:
+    if not votes:
+        return None
+    positions = [bucket * 10 + 5 for bucket, n in votes.items() for _ in range(n)]
+    if not positions:
+        return None
+    best_mid = max(
+        positions,
+        key=lambda p: sum(1 for q in positions if abs(q - p) <= 36),
+    )
+    count = sum(1 for q in positions if abs(q - best_mid) <= 36)
+    if count < 2:
+        return None
+    mid = best_mid
+    width = 18
+    return mid - width, mid + width
 
 
 def _mark_repeating_artifacts(layouts: list[PageLayout]) -> None:
@@ -292,7 +436,7 @@ def _mark_repeating_artifacts(layouts: list[PageLayout]) -> None:
             if _line_signature(line) not in repeats:
                 continue
             y_ratio = line.ymid / max(layout.page.height, 1)
-            if (y_ratio < 0.09 or y_ratio > 0.93) and line.size <= 10:
+            if (y_ratio < 0.10 or y_ratio > 0.90) and line.size <= 10:
                 line.role = "header" if y_ratio > 0.5 else "footer"
 
 
@@ -310,9 +454,16 @@ def _assign_line_roles(layout: PageLayout) -> None:
     if not layout.lines:
         return
     height = layout.page.height
-    body_sizes = [line.size for line in layout.lines]
-    body_size = median(body_sizes)
-    widths = [line.x1 - line.x0 for line in layout.lines]
+    content = [
+        line
+        for line in layout.lines
+        if line.role not in {"header", "footer", "page_number"}
+    ]
+    if not content:
+        content = list(layout.lines)
+    # Character-weighted mode survives a page of small footnotes under body text.
+    body_size = _dominant_size(content) or median(line.size for line in content)
+    widths = [line.x1 - line.x0 for line in content]
     typical_width = median(widths) if widths else layout.page.width * 0.7
 
     for line in layout.lines:
@@ -324,7 +475,7 @@ def _assign_line_roles(layout: PageLayout) -> None:
         if PAGE_NUMBER_RE.match(compact):
             line.role = "page_number"
             continue
-        in_band = y_ratio > 0.93 or y_ratio < 0.07
+        in_band = y_ratio > 0.90 or y_ratio < 0.07
         if in_band and ARTIFACT_HINT.search(compact):
             line.role = "header" if y_ratio > 0.5 else "footer"
             continue
@@ -337,12 +488,45 @@ def _assign_line_roles(layout: PageLayout) -> None:
         if _is_table_line(line, typical_width):
             line.role = "table"
             continue
-        if BULLET_RE.match(text.lstrip()) or compact.startswith(("•", "-", "–", "*")):
+        if _is_bullet_line(text, compact):
             line.role = "list"
             continue
-        if line.size >= body_size * 1.16 and (line.x1 - line.x0) < layout.page.width * 0.88:
+        if (
+            line.size >= body_size * 1.16
+            and (line.x1 - line.x0) < layout.page.width * 0.88
+            and len(compact) <= 100
+        ):
             line.role = "heading"
             continue
+    _promote_list_wraps(layout)
+
+
+def _promote_list_wraps(layout: PageLayout) -> None:
+    """A line that continues a bullet stays list; otherwise lists shred.
+
+    Track the last list line per column — a shared baseline from the other
+    column must not reset the continuation.
+    """
+    lines = sorted(layout.lines, key=lambda line: (-line.ymid, line.column, line.x0))
+    prev_by_col: dict[int, Line] = {}
+    for line in lines:
+        if line.role == "list":
+            prev_by_col[line.column] = line
+            continue
+        prev = prev_by_col.get(line.column)
+        if (
+            prev is not None
+            and prev.role == "list"
+            and line.role == "body"
+            and _continues_sentence(prev, line)
+        ):
+            text = _preview_text(line).lstrip()
+            compact = re.sub(r"\s+", " ", text).strip()
+            if not _is_bullet_line(text, compact):
+                line.role = "list"
+                prev_by_col[line.column] = line
+                continue
+        prev_by_col[line.column] = line
 
 
 def _preview_text(line: Line) -> str:
@@ -357,12 +541,98 @@ def _preview_text(line: Line) -> str:
     return "".join(parts)
 
 
+def _is_bullet_line(text: str, compact: str) -> bool:
+    stripped = text.lstrip()
+    if stripped.startswith(("•", "▪", "‣", "◦", "·")):
+        return True
+    if stripped.startswith(("*", "-")):
+        return len(compact) <= 120
+    # Em dash bullets are rare; an em dash mid-sentence is common.
+    if stripped.startswith(("–", "—")):
+        if len(compact) > 90:
+            return False
+        rest = stripped[1:].lstrip()
+        # "– should also be…" continues a sentence; list items usually capitalize.
+        return bool(rest) and not rest[0].islower()
+    return bool(BULLET_RE.match(stripped))
+
+
+def _dominant_size(lines: list[Line]) -> float:
+    """Body font size: the largest size that carries a real share of the page.
+
+    A character-weighted mode alone loses to a page whose footnotes are longer
+    than its body. Taking the largest size with >=25% of the characters keeps
+    narrative size over note size and over one-off display faces.
+    """
+    if not lines:
+        return 0.0
+    weights: Counter[float] = Counter()
+    total = 0
+    for line in lines:
+        n = max(len(line.glyphs), 1)
+        weights[round(line.size, 1)] += n
+        total += n
+    if not weights:
+        return 0.0
+    shared = [size for size, w in weights.items() if w >= total * 0.25]
+    if shared:
+        return max(shared)
+    return weights.most_common(1)[0][0]
+
+
+def _mark_footnotes(layout: PageLayout) -> None:
+    """Footnotes sit in the bottom band, smaller than the narrative, often numbered."""
+    height = max(layout.page.height, 1)
+    candidates = [
+        line
+        for line in layout.lines
+        if line.role not in {"header", "footer", "page_number", "heading", "table", "code"}
+    ]
+    if len(candidates) < 3:
+        return
+    body_size = _dominant_size(candidates)
+    if body_size <= 0:
+        return
+    small_cut = body_size * 0.92
+    for line in candidates:
+        if line.role == "footnote":
+            continue
+        y_ratio = line.ymid / height
+        text = _preview_text(line).strip()
+        small = line.size < small_cut
+        marked = bool(FOOTNOTE_START.match(text))
+        if marked and line.size <= body_size * 1.06 and y_ratio < 0.55:
+            line.role = "footnote"
+        elif small and y_ratio < 0.36:
+            line.role = "footnote"
+        elif small and y_ratio < 0.22:
+            line.role = "footnote"
+
+
 def _is_code_line(line: Line, text: str) -> bool:
     name = line.fontname.lower()
-    if any(token in name for token in ("mono", "courier", "consolas", "menlo", "code")):
-        return True
+    mono = any(token in name for token in ("mono", "courier", "consolas", "menlo", "code"))
     stripped = text.rstrip()
-    return bool(re.match(r"^\s{0,8}(def |class |import |from |#include |function )", stripped))
+    # Real code starts, not English prose like "from other disciplines…"
+    # or "public sphere".
+    strong = re.match(
+        r"""(?x)^\s{0,8}(
+            def\s+\w
+          | class\s+\w
+          | import\s+\w
+          | from\s+[\w.]+\s+import\s+
+          | \#include\s
+          | function\s+\w
+          | (public|private|protected)\s+(static\s+|class\s+|void\s+|final\s+)
+          | (const|let|var)\s+\w+\s*=
+        )""",
+        stripped,
+    )
+    if strong:
+        return True
+    if mono and len(stripped) < 200:
+        return True
+    return False
 
 
 def _is_table_line(line: Line, typical_width: float) -> bool:
@@ -374,12 +644,28 @@ def _is_table_line(line: Line, typical_width: float) -> bool:
     if len(large) >= 2 and span > typical_width * 0.5:
         return True
     if len(large) == 1 and large[0] > line.size * 2.2 and span > typical_width * 0.35:
-        return True
+        # Form row: label | value. Prose with one footnote gap has a long cell.
+        cut = gaps.index(large[0])
+        left = "".join(g.text for g in line.glyphs[: cut + 1]).strip()
+        right = "".join(g.text for g in line.glyphs[cut + 1 :]).strip()
+        return len(left) <= 40 and len(right) <= 40
     return False
 
 
 def _lines_to_blocks(layout: PageLayout) -> list[Block]:
-    body = [line for line in layout.lines if line.role not in {"header", "footer", "page_number"}]
+    body = [
+        line
+        for line in layout.lines
+        if line.role not in {"header", "footer", "page_number", "footnote"}
+    ]
+    notes = [line for line in layout.lines if line.role == "footnote"]
+    blocks: list[Block] = []
+    blocks.extend(_blocks_from_lines(body, layout))
+    blocks.extend(_blocks_from_lines(notes, layout))
+    return blocks
+
+
+def _blocks_from_lines(body: list[Line], layout: PageLayout) -> list[Block]:
     if not body:
         return []
     # Reading order: full-width headings first in y-order; two-column bands
@@ -422,6 +708,10 @@ def _column_bands(lines: list[Line]) -> list[list[Line]]:
 
 def _looks_full_width(line: Line, peers: list[Line]) -> bool:
     page_width = max(p.x1 for p in peers) - min(p.x0 for p in peers)
+    if page_width <= 0:
+        return False
+    if (line.x1 - line.x0) <= page_width * 0.72:
+        return False
     if line.role == "heading":
         return True
     if (line.x1 - line.x0) <= page_width * 0.72:
@@ -437,6 +727,8 @@ def _looks_full_width(line: Line, peers: list[Line]) -> bool:
 def _paragraphs_in_column(lines: list[Line], layout: PageLayout) -> list[Block]:
     if not lines:
         return []
+    if all(line.role == "footnote" for line in lines):
+        return _split_footnotes(lines, layout)
     heights = [line.y1 - line.y0 for line in lines]
     line_h = median(heights) if heights else 12.0
     page_width = layout.page.width
@@ -459,7 +751,21 @@ def _paragraphs_in_column(lines: list[Line], layout: PageLayout) -> list[Block]:
     blocks: list[Block] = []
     for group in groups:
         role = group[0].role if all(line.role == group[0].role for line in group) else "body"
+        if role == "footnote":
+            blocks.extend(_split_footnotes(group, layout))
+            continue
         if role == "heading" and len(group) > 1:
+            if all(line.role == "heading" for line in group):
+                # Multi-line title wrap — one heading, not heading + body.
+                blocks.append(
+                    Block(
+                        lines=group,
+                        role="heading",
+                        page=layout.page.index,
+                        column=group[0].column,
+                    )
+                )
+                continue
             # Only the first oversized line is the heading.
             blocks.append(
                 Block(lines=[group[0]], role="heading", page=layout.page.index, column=group[0].column)
@@ -476,6 +782,25 @@ def _paragraphs_in_column(lines: list[Line], layout: PageLayout) -> list[Block]:
                 Block(lines=group, role=role, page=layout.page.index, column=group[0].column)
             )
     return blocks
+
+
+def _split_footnotes(lines: list[Line], layout: PageLayout) -> list[Block]:
+    """One block per footnote: a new marker starts a new note."""
+    if not lines:
+        return []
+    groups: list[list[Line]] = [[lines[0]]]
+    for prev, cur in zip(lines, lines[1:]):
+        text = _preview_text(cur).strip()
+        gap = prev.y0 - cur.y1
+        starts_new = bool(FOOTNOTE_START.match(text)) and gap < (prev.y1 - prev.y0) * 2.2
+        if starts_new:
+            groups.append([cur])
+        else:
+            groups[-1].append(cur)
+    return [
+        Block(lines=group, role="footnote", page=layout.page.index, column=group[0].column)
+        for group in groups
+    ]
 
 
 def _hard_break(

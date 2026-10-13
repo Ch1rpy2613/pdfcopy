@@ -7,6 +7,7 @@ import unicodedata
 
 from pdfcopy.cluster import Block, Line, PageLayout
 from pdfcopy.glyphs import Glyph
+from pdfcopy.textutil import decompose_ligatures
 
 CJK_RANGES = (
     ("\u3300", "\u33ff"),
@@ -38,17 +39,111 @@ def is_cjk_punct(char: str) -> bool:
 
 
 def serialize_layouts(layouts: list[PageLayout]) -> str:
-    pages = [serialize_page(layout) for layout in layouts]
-    pages = [page for page in pages if page]
-    return _normalize("\n\n".join(pages))
+    """Document text: narrative first (soft wraps joined), notes at the end."""
+    body_chunks: list[tuple[str, str]] = []
+    note_chunks: list[str] = []
+    for layout in layouts:
+        for block in layout.blocks:
+            chunk = serialize_block(block)
+            if not chunk:
+                continue
+            if block.role == "footnote":
+                note_chunks.append(chunk)
+            else:
+                body_chunks.append((chunk, block.role))
+    body = _join_narrative(body_chunks)
+    if note_chunks:
+        notes = _join_narrative([(c, "footnote") for c in note_chunks])
+        text = f"{body}\n\n{notes}" if body else notes
+    else:
+        text = body
+    return _normalize(text)
 
 
 def serialize_page(layout: PageLayout) -> str:
     if not layout.page.has_text_layer and not layout.blocks:
         return ""
-    chunks = [serialize_block(block) for block in layout.blocks]
-    chunks = [c for c in chunks if c]
-    return _normalize("\n\n".join(chunks))
+    body = [(serialize_block(b), b.role) for b in layout.blocks if b.role != "footnote"]
+    notes = [serialize_block(b) for b in layout.blocks if b.role == "footnote"]
+    body = [(c, r) for c, r in body if c]
+    notes = [c for c in notes if c]
+    text = _join_narrative(body)
+    if notes:
+        joined = "\n\n".join(notes)
+        text = f"{text}\n\n{joined}" if text else joined
+    return _normalize(text)
+
+
+_SENTENCE_END = tuple(".!?。！？…")
+_WEAK_END = tuple(",;、，")
+_OPENERS = tuple("\"'“‘([{")
+# Structural blocks must never melt into a paragraph.
+_NO_JOIN_ROLES = {"table", "code", "list"}
+
+
+def _join_narrative(chunks: list[tuple[str, str]]) -> str:
+    """Join body fragments that were split by columns, pages, or footnotes."""
+    if not chunks:
+        return ""
+    out: list[str] = [chunks[0][0]]
+    prev_role = chunks[0][1]
+    for chunk, role in chunks[1:]:
+        prev = out[-1]
+        if _should_join(prev, prev_role, chunk, role):
+            out[-1] = _join_soft_break(prev.rstrip(), chunk.lstrip())
+        else:
+            out.append(chunk)
+            prev_role = role
+    return "\n\n".join(out)
+
+
+def _should_join(prev: str, prev_role: str, chunk: str, role: str) -> bool:
+    if not _continues_paragraph(prev, chunk):
+        return False
+    if _may_join_roles(prev_role, role):
+        return True
+    # Hyphen seam across a role change (list item wrap, footnote stub).
+    left = prev.rstrip()
+    right = chunk.lstrip()
+    return bool(left) and left[-1] in LATIN_JOIN_HYPHEN and bool(right) and right[0].islower()
+
+
+def _may_join_roles(left: str, right: str) -> bool:
+    if left in _NO_JOIN_ROLES or right in _NO_JOIN_ROLES:
+        return False
+    # A heading may wrap onto the next heading line, never into body prose.
+    if left == "heading" or right == "heading":
+        return left == right == "heading"
+    return True
+
+
+def _continues_paragraph(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    l = left.rstrip()
+    r = right.lstrip()
+    if not l or not r:
+        return False
+    lch, rch = l[-1], r[0]
+    # Labels, headings, and table captions end with ':' — keep them separate.
+    if lch in ":":
+        return False
+    if rch in _OPENERS or rch.isupper():
+        return False
+    # Soft hyphen at a block seam: "inter-" + "national".
+    if lch in LATIN_JOIN_HYPHEN and rch.islower():
+        return True
+    if l.endswith("...") or l.endswith("…"):
+        return rch.islower() or is_cjk(rch)
+    if lch in _SENTENCE_END:
+        return False
+    if rch in _WEAK_END or lch in _WEAK_END:
+        return rch.islower() or is_cjk(rch)
+    if is_cjk(lch) and is_cjk(rch):
+        return True
+    if lch.isalnum() and rch.islower():
+        return True
+    return False
 
 
 def serialize_line(line: Line) -> str:
@@ -208,7 +303,7 @@ def naive_serialize(layouts: list[PageLayout]) -> str:
 
 
 def _normalize(text: str) -> str:
-    text = unicodedata.normalize("NFC", text)
+    text = unicodedata.normalize("NFC", decompose_ligatures(text))
     text = text.replace("\u00a0", " ")
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"[ \t]{2,}", " ", text)

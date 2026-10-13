@@ -18,6 +18,8 @@ from pdfminer.pdfparser import PDFParser
 from pdfminer.pdftypes import resolve1
 from pikepdf import Name
 
+from pdfcopy.textutil import decompose_ligatures
+
 CID_TEXT = re.compile(r"^\(cid:(\d+)\)$")
 # Spacing look-alikes of combining marks: publishers decompose ñ into
 # "n" + a tilde drawn as its own glyph.
@@ -283,6 +285,7 @@ def extract_glyphs(source: str | Path | BinaryIO) -> list[PageGlyphs]:
                 text = _char_text(char, font_maps)
                 if text is None:
                     continue
+                text = decompose_ligatures(text)
                 glyphs.append(
                     Glyph(
                         text=text,

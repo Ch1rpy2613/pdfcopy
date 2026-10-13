@@ -132,3 +132,123 @@ def test_nfc_only_through_line_join(raw, expected):
     import unicodedata
 
     assert unicodedata.is_normalized("NFC", text)
+
+
+def test_ligatures_decompose_to_letters():
+    from pdfcopy.textutil import decompose_ligatures
+
+    assert decompose_ligatures("reﬂections ﬁeld ﬃcient ﬂow") == "reflections field fficient flow"
+    assert decompose_ligatures("ﬁ") == "fi"
+    # ß is a letter, not a ligature.
+    assert decompose_ligatures("Straße") == "Straße"
+
+
+def test_code_detector_rejects_english_prose():
+    from pdfcopy.cluster import Line, _is_code_line
+    from pdfcopy.glyphs import Glyph
+
+    def line(text, font="Times"):
+        glyphs = [
+            Glyph(text=ch, x0=i, y0=0, x1=i + 1, y1=1, fontname=font, size=12, page=0)
+            for i, ch in enumerate(text)
+        ]
+        return Line(glyphs=glyphs, page=0)
+
+    assert not _is_code_line(line("public sphere. Although elections"), _preview := "public sphere. Although elections")
+    assert not _is_code_line(line("from other disciplines, including"), "from other disciplines, including")
+    assert _is_code_line(line("def glue(left, right):", font="Courier"), "def glue(left, right):")
+    assert _is_code_line(line("import os", font="Courier"), "import os")
+
+
+def test_bullet_detector_rejects_citation_years():
+    from pdfcopy.cluster import _is_bullet_line
+
+    assert not _is_bullet_line("(2022) have also challenged", "(2022) have also challenged")
+    assert not _is_bullet_line("– should also be subject to", "– should also be subject to")
+    assert _is_bullet_line("• Information need only", "• Information need only")
+    assert _is_bullet_line("1. First item", "1. First item")
+    assert _is_bullet_line("- apply the filter", "- apply the filter")
+
+
+def test_narrative_join_stitches_soft_wrap_and_hyphen():
+    from pdfcopy.serialize import _continues_paragraph, _join_narrative
+
+    chunks = [
+        ("These digitised sources are often treated as surrogates; yet with", "body"),
+        ("increased accessibility. Some have argued otherwise.", "body"),
+    ]
+    out = _join_narrative(chunks)
+    assert "yet with increased accessibility" in out
+
+    chunks = [
+        ("tionary of the inter-", "body"),
+        ("national corpus.", "body"),
+    ]
+    out = _join_narrative(chunks)
+    assert "international corpus" in out
+
+
+def test_narrative_join_keeps_structure_blocks_apart():
+    from pdfcopy.serialize import _join_narrative
+
+    chunks = [
+        ("The extractor treats Courier as a code block.", "body"),
+        ("def glue(left, right):", "code"),
+        ("return left", "code"),
+    ]
+    out = _join_narrative(chunks)
+    assert "block. def glue" not in out
+    assert "def glue" in out
+
+
+def test_footnote_marker_rejects_bare_article():
+    from pdfcopy.cluster import FOOTNOTE_START
+
+    assert FOOTNOTE_START.match("1 John F. Reynolds")
+    assert FOOTNOTE_START.match("56 M. J. H. F. Wevers")
+    assert FOOTNOTE_START.match("a) See note")
+    assert not FOOTNOTE_START.match("a reference culture in Dutch")
+    assert not FOOTNOTE_START.match("and less than 5%")
+
+
+def test_sidebar_heading_does_not_break_column_bands():
+    from pdfcopy.cluster import Line, _looks_full_width
+    from pdfcopy.glyphs import Glyph
+
+    def line(x0, x1, y, role, text):
+        glyphs = [
+            Glyph(text=ch, x0=x0 + i * 3, y0=y, x1=x0 + i * 3 + 2, y1=y + 8,
+                  fontname="Times", size=12, page=0)
+            for i, ch in enumerate(text)
+        ]
+        return Line(glyphs=glyphs, page=0, role=role)
+
+    sidebar = line(40, 200, 200, "heading", "Someone would say")
+    full = line(40, 500, 100, "body", "A full-width narrative line that spans the whole measure.")
+    peers = [sidebar, full, line(230, 500, 200, "body", "body continues")]
+    assert not _looks_full_width(sidebar, peers)
+    assert _looks_full_width(full, peers)
+
+
+def test_hole_gutter_separates_pre_split_columns():
+    from pdfcopy.cluster import Line, _gutter_from_holes
+    from pdfcopy.glyphs import Glyph
+
+    def line(x0, x1, y, text):
+        n = max(len(text), 1)
+        step = (x1 - x0) / n
+        glyphs = [
+            Glyph(text=ch, x0=x0 + i * step, y0=y, x1=x0 + (i + 1) * step, y1=y + 8,
+                  fontname="Times", size=12, page=0)
+            for i, ch in enumerate(text)
+        ]
+        return Line(glyphs=glyphs, page=0)
+
+    lines = []
+    for i in range(8):
+        lines.append(line(40, 180, 400 - i * 18, "quote line here"))
+        lines.append(line(260, 560, 400 - i * 18, "body text continues across the page measure"))
+    gutter = _gutter_from_holes(lines, 40, 560)
+    assert gutter is not None
+    left, right = gutter
+    assert left < 220 < right

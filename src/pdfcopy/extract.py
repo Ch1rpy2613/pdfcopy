@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -32,6 +33,7 @@ class ExtractResult:
 def extract(source: Source) -> ExtractResult:
     glyphs = extract_glyphs(source)
     layouts = cluster_document(glyphs)
+    layouts = _drop_mirror_duplicates(layouts)
     text = serialize_layouts(layouts)
     naive = naive_serialize(layouts)
     page_texts = [serialize_page(layout) for layout in layouts]
@@ -55,3 +57,29 @@ def extract(source: Source) -> ExtractResult:
 
 def extract_text(source: Source) -> str:
     return extract(source).text
+
+
+def _page_words(layout: PageLayout) -> frozenset[str]:
+    words: set[str] = set()
+    for line in layout.lines:
+        raw = "".join(g.text for g in line.glyphs)
+        for word in re.findall(r"[a-zA-Z]{3,}", raw.lower()):
+            words.add(word)
+    return frozenset(words)
+
+
+def _drop_mirror_duplicates(layouts: list[PageLayout]) -> list[PageLayout]:
+    """Some scans draw each spread twice (once flipped). Keep one copy."""
+    if len(layouts) < 2:
+        return layouts
+    out: list[PageLayout] = []
+    prev_words: frozenset[str] = frozenset()
+    for layout in layouts:
+        words = _page_words(layout)
+        if words and prev_words:
+            overlap = len(words & prev_words) / max(len(words | prev_words), 1)
+            if overlap >= 0.9:
+                continue
+        out.append(layout)
+        prev_words = words
+    return out
